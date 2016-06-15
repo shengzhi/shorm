@@ -11,8 +11,8 @@ import (
 	_ "github.com/denisenkom/go-mssqldb"
 )
 
-var connstr = "server=139.196.7.213;port=3341;database=TicketSales_UAT;user id=sa;password=1Q2w3e4r;connection timeout=30;dial timeout=15;log=1;encrypt=disable"
-var connstr2 = "server=192.168.0.128;database=DX_Fly;user id=sa;password=today123;connection timeout=30;dial timeout=15;log=1;encrypt=disable"
+var connstr = ""
+var connstr2 = ""
 
 type FlyOrder struct {
 	TableName  TableName `shorm:"FL_Order"`
