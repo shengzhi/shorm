@@ -11,7 +11,7 @@ shorm is a orm tool wriitted in golang, which supports databse cluster and maste
 - Both ORM and raw sql support
 - Database cluster support
 - Master-slave mode support
-- Struce field support, will be stored as json string
+- Struct field support, will be stored as json string
 
 # Drivers support
 - MsSql: github.com/denisenkom/go-mssqldb
