@@ -66,7 +66,7 @@ func (c *Cluster) findGroup(shardKey int64) (*DbGroup, bool) {
 	if c.RealGroups == 1 {
 		return c.Groups[0], true
 	}
-	mod := shardKey%int64(c.TotalGroups) + 1
+	mod := shardKey%int64(c.TotalGroups)
 	for _, g := range c.Groups {
 		if g.in(mod) {
 			return g, true
@@ -106,7 +106,7 @@ type DbGroup struct {
 }
 
 func (d *DbGroup) in(mod int64) bool {
-	return d.RangeFrom <= mod && mod <= d.RangeTo
+	return d.RangeFrom <= mod && mod < d.RangeTo
 }
 
 func (d *DbGroup) GetMaster() (*DbNode, error) {
