@@ -175,3 +175,46 @@ and will locate the database "G1_node1"
 		sort.Sort(slice)
 		return slice[:pageSize]
 	```
+	- In operatiion
+	```Go
+		s.ShardValue(100).In("UserId",12,234,345).Find(&slice)
+	```
+
+	- Between operation
+	```Go
+		s.ShardValue(100).Between("UserId",10,100).Find(&slice)
+	```
+
+- Insert data
+
+	- Insert one record
+	```Go
+		user := User{
+			Id: 1001,
+			UserName: "Test",
+			Age: 18,
+			CreatedTime: time.Now(),
+		}
+		count,err := s.Insert(&user)
+	```
+	- Insert slice
+	```Go
+		users := make(*User, 0)
+		result, err := s.InsertSlice(&users)
+		fmt.Println(result.Success)
+		fmt.Println(result.FailedData)
+	```
+
+	- Database transaction(only support signle database transaction)
+	```Go
+		trans, err := engine.BeginTrans(shardValue)
+		if _, err = trans.Insert(&user1);err != nil{
+			trans.Rollback()
+			return
+		}
+		if _, err = trans.Insert(&user2);err != nil{
+			trans.Rollback()
+			return
+		}
+		trans.Commit()
+	```
