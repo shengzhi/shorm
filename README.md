@@ -205,7 +205,7 @@ and will locate the database "G1_node1"
 		fmt.Println(result.FailedData)
 	```
 
-	- Database transaction(only support signle database transaction)
+	- Database transaction(only support single database transaction)
 	```Go
 		trans, err := engine.BeginTrans(shardValue)
 		if _, err = trans.Insert(&user1);err != nil{
