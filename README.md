@@ -212,7 +212,7 @@ and will locate the database "G1_node1"
 			trans.Rollback()
 			return
 		}
-		if _, err = trans.Insert(&user2);err != nil{
+		if _, err = trans.InsertSlice(&orderList);err != nil{
 			trans.Rollback()
 			return
 		}
