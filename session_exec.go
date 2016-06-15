@@ -229,3 +229,50 @@ func (s *Session) insertWithTx(tx *sql.Tx, model interface{}) error {
 	}
 	return nil
 }
+
+func (s *Session) insertSliceWithTx(tx *sql.Tx, slicePtr interface{}) error {
+	defer s.reset()
+	slice := reflect.Indirect(reflect.ValueOf(slicePtr))
+	if slice.Kind() != reflect.Slice {
+		return fmt.Errorf("slicePtr must be a pointer to slice")
+	}
+	if slice.Len() <= 0 {
+		return nil
+	}
+
+	elementType := slice.Index(0).Type()
+	if elementType.Kind() == reflect.Ptr {
+		elementType = elementType.Elem()
+	}
+	if elementType.Kind() != reflect.Struct {
+		return fmt.Errorf("element type must be struct")
+	}
+	table, err := getTableMeta(reflect.Indirect(slice.Index(0)).Interface())
+	if err != nil {
+		return err
+	}
+
+	sqls := make([]string, 0, slice.Len())
+	totalArgs := make([]interface{}, 0)
+	var elementValue reflect.Value
+	for i := 0; i < slice.Len(); i++ {
+		elementValue = slice.Index(i)
+		if elementValue.Type().Kind() == reflect.Ptr {
+			elementValue = elementValue.Elem()
+		}
+		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList)
+		sqls = append(sqls, sqlstr)
+		totalArgs = append(totalArgs, args...)
+	}
+	sqlList := strings.Join(sqls, ";")
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlList, totalArgs)
+	var stmt *sql.Stmt
+	stmt, err = tx.Prepare(sqlList)
+	if err != nil {
+		return err
+	}
+	if _, err = stmt.Exec(totalArgs...); err != nil {
+		return err
+	}
+	return nil
+}
