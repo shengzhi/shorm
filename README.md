@@ -64,10 +64,9 @@ shorm is a orm tool wriitted in golang, which supports databse cluster and maste
 		})
 	engine := shorm.NewEngine("mssql", &cluster)
 ```
+- *if no sharding value, sql query will be executed against all groups*
 - *if the sharding value lines in[0,3), the sql query will be exeucted against Group1*
 - *if the sharding value lines in[3,5), the sql query will be exeucted against Group2*
-- *if no sharding value, sql query will be executed against all groups*
-
 
 - Create engine from config file
 ```Go
