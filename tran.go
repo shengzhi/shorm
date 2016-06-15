@@ -42,6 +42,20 @@ func (d *DbTrans) Rollback() error {
 	return d.tx.Rollback()
 }
 
+func (d *DbTrans) Cols(cols string) *DbTrans {
+	d.session.Cols(cols)
+	return d
+}
+
+func (d *DbTrans) Omit(cols string) *DbTrans {
+	d.session.Omit(cols)
+	return d
+}
+
 func (d *DbTrans) Insert(model interface{}) error {
 	return d.session.insertWithTx(d.tx, model)
+}
+
+func (d *DbTrans) InsertSlice(slicePtr interface{}) error {
+	return d.session.insertSliceWithTx(d.tx, slicePtr)
 }
