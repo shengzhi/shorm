@@ -59,3 +59,11 @@ func (d *DbTrans) Insert(model interface{}) error {
 func (d *DbTrans) InsertSlice(slicePtr interface{}) error {
 	return d.session.insertSliceWithTx(d.tx, slicePtr)
 }
+
+func (d *DbTrans) Update(model interface{}) error {
+	return d.session.updateWithTx(d.tx, model)
+}
+
+func (d *DbTrans) Delete(model interface{}) error {
+	return d.session.deleteWithTx(d.tx, model)
+}

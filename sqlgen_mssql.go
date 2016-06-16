@@ -6,31 +6,24 @@ package shorm
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
 )
 
 type MSSqlGenerator struct {
-	bufPool *sync.Pool
+	BaseGenerator
 }
 
 func NewMSSqlGenerator() *MSSqlGenerator {
-	g := MSSqlGenerator{bufPool: &sync.Pool{}}
+	g := MSSqlGenerator{
+		BaseGenerator{
+			bufPool:  &sync.Pool{},
+			wrapFunc: func(s string) string { return fmt.Sprintf("[%s]", s) },
+		}}
 	g.bufPool.New = func() interface{} { return &bytes.Buffer{} }
 	return &g
-}
-
-func (m *MSSqlGenerator) putBuf(buf *bytes.Buffer) {
-	buf.Reset()
-	m.bufPool.Put(buf)
-}
-
-func (m *MSSqlGenerator) getBuf() *bytes.Buffer {
-	return m.bufPool.Get().(*bytes.Buffer)
 }
 
 //Generates select SQL statement
@@ -147,103 +140,4 @@ func (m *MSSqlGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (st
 		return sqlStr, args
 	}
 	return fmt.Sprintf(buf.String(), colNames), args
-}
-
-func (m *MSSqlGenerator) makeInArgs(params []interface{}) string {
-	element := reflect.Indirect(reflect.ValueOf(params[0]))
-	isNumber := false
-	switch element.Type().Kind() {
-	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8,
-		reflect.Float32, reflect.Float64:
-		isNumber = true
-	default:
-		isNumber = false
-	}
-	var buf bytes.Buffer
-	for _, arg := range params {
-		if isNumber {
-			buf.WriteString(fmt.Sprintf("%v,", arg))
-		} else {
-			buf.WriteString(fmt.Sprintf("'%v',", arg))
-		}
-
-	}
-	buf.Truncate(buf.Len() - 1)
-	return buf.String()
-}
-
-func (m *MSSqlGenerator) wrapColumn(colName string) string {
-	return fmt.Sprintf("[%s]", colName)
-}
-
-//Generates insert SQL statement
-func (m *MSSqlGenerator) GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
-	buf := m.getBuf()
-	defer m.putBuf(buf)
-	args := make([]interface{}, 0, len(table.Columns))
-	var colNames []string
-	include := true
-Loop:
-	for _, s := range sqls {
-		switch s.op {
-		case opType_cols:
-			colNames = strings.Split(strings.ToLower(s.clause), ",")
-			break Loop
-		case opType_omit:
-			colNames = strings.Split(strings.ToLower(s.clause), ",")
-			include = false
-		}
-	}
-	buf.WriteString("insert into ")
-	buf.WriteString(m.wrapColumn(table.Name))
-	buf.WriteString("(")
-	table.Columns.Foreach(func(col string, meta *columnMetadata) {
-		if meta.isAutoId || meta.rwType&io_type_wo != io_type_wo {
-			return
-		}
-		if len(colNames) <= 0 {
-			buf.WriteString(m.wrapColumn(meta.name))
-			buf.WriteString(",")
-			args = append(args, m.getValue(meta, value))
-			return
-		}
-		for _, name := range colNames {
-			if name == col && include {
-				buf.WriteString(m.wrapColumn(meta.name))
-				buf.WriteString(",")
-				args = append(args, m.getValue(meta, value))
-				return
-			}
-			if name != col && !include {
-				buf.WriteString(m.wrapColumn(meta.name))
-				buf.WriteString(",")
-				args = append(args, m.getValue(meta, value))
-				return
-			}
-		}
-	})
-	buf.Truncate(buf.Len() - 1)
-	buf.WriteString(fmt.Sprintf(") values(%s)", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
-	return buf.String(), args
-}
-
-func (m *MSSqlGenerator) getValue(colMeta *columnMetadata, value reflect.Value) interface{} {
-	field := value.FieldByIndex(colMeta.fieldIndex)
-	if field.Type().Kind() == reflect.Ptr {
-		field = field.Elem()
-	}
-	result := field.Interface()
-
-	switch colMeta.goType.Kind() {
-	case reflect.Struct:
-		if colMeta.specialType == specialType_time {
-			return result
-		}
-		data, _ := json.MarshalIndent(result, "", "")
-		var buf bytes.Buffer
-		json.Compact(&buf, data)
-		return buf.String()
-	default:
-		return result
-	}
 }

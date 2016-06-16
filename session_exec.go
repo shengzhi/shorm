@@ -18,6 +18,7 @@ import (
 type SqlResult struct {
 	Success    int
 	FailedData []interface{}
+	err        error
 }
 
 type temp struct {
@@ -26,8 +27,48 @@ type temp struct {
 	args   []interface{}
 }
 
-//InsertSlice does not guarantee all elements in one db transaction,
-//but will guarantee the elements line in same node are in db transaction
+func (s *Session) getTableAndValue(model interface{}) (table *TableMetadata, value reflect.Value, err error) {
+	table, err = getTableMeta(model)
+	if err != nil {
+		return
+	}
+	value = reflect.ValueOf(model)
+	if value.Type().Kind() == reflect.Ptr {
+		value = value.Elem()
+	}
+	return
+}
+
+func (s *Session) genMultiInsertSql(table *TableMetadata, sliceValue reflect.Value) (string, []interface{}) {
+	sqls := make([]string, 0, sliceValue.Len())
+	totalArgs := make([]interface{}, 0, sliceValue.Len()*len(table.Columns))
+	var elementValue reflect.Value
+	for i := 0; i < sliceValue.Len(); i++ {
+		elementValue = sliceValue.Index(i)
+		if elementValue.Type().Kind() == reflect.Ptr {
+			elementValue = elementValue.Elem()
+		}
+		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList)
+		sqls = append(sqls, sqlstr)
+		totalArgs = append(totalArgs, args...)
+	}
+	return strings.Join(sqls, ";"), totalArgs
+}
+
+func (s *Session) insertSlice2(table *TableMetadata, slice reflect.Value) (int64, error) {
+	sqlStr, args := s.genMultiInsertSql(table, slice)
+	node, _ := s.group.GetMaster()
+	s.logger.Printf("sql:%s\r\n args:%v\r\n", sqlStr, args)
+	result, err := node.Db.Exec(sqlStr, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// InsertSlice implements insert multiple records in one database call.
+// If no sharding value specified, it does not guarantee all data are in one db transaction,
+// but will guarantee the data lines in same db node are in db transaction
 func (s *Session) InsertSlice(slicePtr interface{}) (*SqlResult, error) {
 	defer s.reset()
 	slice := reflect.Indirect(reflect.ValueOf(slicePtr))
@@ -48,6 +89,14 @@ func (s *Session) InsertSlice(slicePtr interface{}) (*SqlResult, error) {
 	table, err := getTableMeta(reflect.Indirect(slice.Index(0)).Interface())
 	if err != nil {
 		return nil, err
+	}
+
+	if s.hasShardKey {
+		var count int64
+		if count, err = s.insertSlice2(table, slice); err != nil {
+			return nil, err
+		}
+		return &SqlResult{Success: int(count)}, nil
 	}
 
 	shardGroup := make(map[*DbGroup]*temp, 0)
@@ -104,21 +153,23 @@ func (s *Session) InsertSlice(slicePtr interface{}) (*SqlResult, error) {
 	ch_result := make(chan SqlResult)
 	wait := &sync.WaitGroup{}
 	for k, v := range shardGroup {
-		node, _ := k.GetMaster()
-		s.logger.Printf("exec insert slice againt db node %s\r\n", node.Name)
-
 		wait.Add(1)
-		go func(t *temp) {
+		go func(group *DbGroup, t *temp) {
+			node, _ := group.GetMaster()
 			sqlstr := strings.Join(v.sqls, ";")
 			s.logger.Printf("sql:%s\r\n args:%v\r\n", sqlstr, t.args)
+			s.logger.Printf("exec sql againt db node %s\r\n", node.Name)
 			_, err = node.Db.Exec(sqlstr, t.args...)
+			r := SqlResult{}
 			if err != nil {
-				ch_result <- SqlResult{FailedData: t.values}
+				r.FailedData = t.values
+				r.err = fmt.Errorf("Group: %s, Node:%s, error:%v", group.Name, node.Name, err)
 			} else {
-				ch_result <- SqlResult{Success: len(t.values)}
+				r.Success = len(t.values)
 			}
+			ch_result <- r
 			wait.Done()
-		}(v)
+		}(k, v)
 	}
 	go func() {
 		wait.Wait()
@@ -145,20 +196,8 @@ func (s *Session) InsertMulti(models ...interface{}) (int64, error) {
 	return count, nil
 }
 
-//Insert data to db
-func (s *Session) Insert(model interface{}) (int64, error) {
-	defer s.reset()
-	table, err := getTableMeta(model)
-	if err != nil {
-		return 0, err
-	}
-	value := reflect.ValueOf(model)
-	if value.Type().Kind() == reflect.Ptr {
-		value = value.Elem()
-	}
-	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList)
-	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
-
+func (s *Session) innerExec(model interface{}, value reflect.Value, table *TableMetadata,
+	sqlStr string, args []interface{}) (sql.Result, error) {
 	if !s.hasShardKey {
 		if table.IsShardinger {
 			s.ShardValue(model.(Shardinger).GetShardValue())
@@ -182,9 +221,22 @@ func (s *Session) Insert(model interface{}) (int64, error) {
 		}
 	}
 	node, _ := s.group.GetMaster()
-	s.logger.Printf("exec insert against node %s", node.Name)
+	s.logger.Printf("exec sql against node %s", node.Name)
+	return node.Db.Exec(sqlStr, args...)
+}
+
+//Insert data to db
+func (s *Session) Insert(model interface{}) (int64, error) {
+	defer s.reset()
+	table, value, err := s.getTableAndValue(model)
+	if err != nil {
+		return 0, err
+	}
+	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+
 	var result sql.Result
-	if result, err = node.Db.Exec(sqlStr, args...); err != nil {
+	if result, err = s.innerExec(model, value, table, sqlStr, args); err != nil {
 		return 0, err
 	}
 	if autoId, err := result.LastInsertId(); err == nil {
@@ -200,13 +252,9 @@ func (s *Session) Insert(model interface{}) (int64, error) {
 
 func (s *Session) insertWithTx(tx *sql.Tx, model interface{}) error {
 	defer s.reset()
-	table, err := getTableMeta(model)
+	table, value, err := s.getTableAndValue(model)
 	if err != nil {
 		return err
-	}
-	value := reflect.ValueOf(model)
-	if value.Type().Kind() == reflect.Ptr {
-		value = value.Elem()
 	}
 	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
@@ -251,28 +299,113 @@ func (s *Session) insertSliceWithTx(tx *sql.Tx, slicePtr interface{}) error {
 	if err != nil {
 		return err
 	}
+	sqlStr, args := s.genMultiInsertSql(table, slice)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	_, err = tx.Exec(sqlStr, args...)
+	return err
+}
 
-	sqls := make([]string, 0, slice.Len())
-	totalArgs := make([]interface{}, 0)
-	var elementValue reflect.Value
-	for i := 0; i < slice.Len(); i++ {
-		elementValue = slice.Index(i)
-		if elementValue.Type().Kind() == reflect.Ptr {
-			elementValue = elementValue.Elem()
-		}
-		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList)
-		sqls = append(sqls, sqlstr)
-		totalArgs = append(totalArgs, args...)
+func (s *Session) Update(model interface{}) (int64, error) {
+	defer s.reset()
+	table, value, err := s.getTableAndValue(model)
+	if err != nil {
+		return 0, err
 	}
-	sqlList := strings.Join(sqls, ";")
-	s.logger.Printf("sql:%s, args:%#v\r\n", sqlList, totalArgs)
-	var stmt *sql.Stmt
-	stmt, err = tx.Prepare(sqlList)
+	sqlStr, args := s.sqlGen.GenUpdate(value, table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	var result sql.Result
+	if s.hasShardKey {
+		node, _ := s.group.GetMaster()
+		if result, err = node.Db.Exec(sqlStr, args...); err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	}
+
+	return s.execSqlOnAllGroups(sqlStr, args)
+}
+
+func (s *Session) updateWithTx(tx *sql.Tx, model interface{}) error {
+	defer s.reset()
+	table, value, err := s.getTableAndValue(model)
 	if err != nil {
 		return err
 	}
-	if _, err = stmt.Exec(totalArgs...); err != nil {
+	sqlStr, args := s.sqlGen.GenUpdate(value, table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	_, err = tx.Exec(sqlStr, args...)
+	return err
+}
+
+// Delete implements delete sql statment.
+// If don't specify sharding value, the delete sql will be exeucted on master nodes of all groups.
+func (s *Session) Delete(model interface{}) (int64, error) {
+	defer s.reset()
+	table, err := getTableMeta(model)
+	if err != nil {
+		return 0, err
+	}
+	sqlStr, args := s.sqlGen.GenDelete(table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	var result sql.Result
+	if s.hasShardKey {
+		node, _ := s.group.GetMaster()
+		s.logger.Printf("exec sql against node %s", node.Name)
+		if result, err = node.Db.Exec(sqlStr, args...); err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	}
+	return s.execSqlOnAllGroups(sqlStr, args)
+}
+
+type tempResult struct {
+	result sql.Result
+	err    error
+}
+
+func (s *Session) execSqlOnAllGroups(sqlStr string, args []interface{}) (int64, error) {
+	var err error
+	ch_result := make(chan tempResult)
+	wait := &sync.WaitGroup{}
+	for _, g := range s.engine.cluster.Groups {
+		wait.Add(1)
+		go func(group *DbGroup) {
+			node, _ := group.GetMaster()
+			r := tempResult{}
+			s.logger.Printf("exec sql against node %s", node.Name)
+			r.result, r.err = node.Db.Exec(sqlStr, args...)
+			if r.err != nil {
+				r.err = fmt.Errorf("Group: %s, Node: %s, error:%v", group.Name, node.Name, r.err)
+			}
+			ch_result <- r
+			wait.Done()
+		}(g)
+	}
+	go func() {
+		wait.Wait()
+		close(ch_result)
+	}()
+	count := int64(0)
+	for r := range ch_result {
+		if r.err != nil {
+			err = fmt.Errorf("%v;%v", err, r.err)
+		} else {
+			n, _ := r.result.RowsAffected()
+			count += n
+		}
+	}
+	return count, err
+}
+
+func (s *Session) deleteWithTx(tx *sql.Tx, model interface{}) error {
+	defer s.reset()
+	table, err := getTableMeta(model)
+	if err != nil {
 		return err
 	}
-	return nil
+	sqlStr, args := s.sqlGen.GenDelete(table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	_, err = tx.Exec(sqlStr, args...)
+	return err
 }
