@@ -1,5 +1,5 @@
 # shorm
-shorm is a orm tool wriitted in golang, which supports databse cluster and master-slave mode
+shorm is a orm tool wriitted in golang, which supports database sharding and master-slave mode
 
 # Installation
   go get github.com/shengzhi/shorm
