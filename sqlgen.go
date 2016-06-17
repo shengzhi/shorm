@@ -230,7 +230,7 @@ func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) i
 	result := field.Interface()
 
 	switch colMeta.goType.Kind() {
-	case reflect.Struct:
+	case reflect.Struct, reflect.Slice:
 		if colMeta.specialType == specialType_time {
 			return result
 		}

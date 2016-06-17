@@ -132,7 +132,7 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 		}
 		field := val.FieldByIndex(pairs[i].index)
 		switch field.Kind() {
-		case reflect.Struct:
+		case reflect.Struct, reflect.Slice:
 			if pairs[i].specialType == specialType_time {
 				field.Set(reflect.ValueOf(pairs[i].value))
 			} else {
