@@ -90,8 +90,10 @@ func (s *Session) InsertSlice(slicePtr interface{}) (*SqlResult, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if s.hasShardKey {
+	if !s.hasShardKey && s.engine.cluster.has1DbGroup() {
+		s.group, _ = s.engine.cluster.DefaultGroup()
+	}
+	if s.group != nil {
 		var count int64
 		if count, err = s.insertSlice2(table, slice); err != nil {
 			return nil, err
@@ -199,23 +201,27 @@ func (s *Session) InsertMulti(models ...interface{}) (int64, error) {
 func (s *Session) innerExec(model interface{}, value reflect.Value, table *TableMetadata,
 	sqlStr string, args []interface{}) (sql.Result, error) {
 	if !s.hasShardKey {
-		if table.IsShardinger {
-			s.ShardValue(model.(Shardinger).GetShardValue())
+		if s.engine.cluster.has1DbGroup() {
+			s.group, _ = s.engine.cluster.DefaultGroup()
 		} else {
-			if table.ShardColumn == nil {
-				s.group, _ = s.engine.cluster.DefaultGroup()
+			if table.IsShardinger {
+				s.ShardValue(model.(Shardinger).GetShardValue())
 			} else {
-				shardField := value.FieldByIndex(table.ShardColumn.fieldIndex)
-				if shardField.Type().Kind() == reflect.Ptr {
-					shardField = shardField.Elem()
-				}
-				shardValue := shardField.Interface()
-				switch v := shardValue.(type) {
-				case int, int32, int64, uint, uint32, uint64:
-					number, _ := strconv.ParseInt(fmt.Sprintf("%v", v), 10, 64)
-					s.ShardValue(number)
-				default:
+				if table.ShardColumn == nil {
 					s.group, _ = s.engine.cluster.DefaultGroup()
+				} else {
+					shardField := value.FieldByIndex(table.ShardColumn.fieldIndex)
+					if shardField.Type().Kind() == reflect.Ptr {
+						shardField = shardField.Elem()
+					}
+					shardValue := shardField.Interface()
+					switch v := shardValue.(type) {
+					case int, int32, int64, uint, uint32, uint64:
+						number, _ := strconv.ParseInt(fmt.Sprintf("%v", v), 10, 64)
+						s.ShardValue(number)
+					default:
+						s.group, _ = s.engine.cluster.DefaultGroup()
+					}
 				}
 			}
 		}
@@ -314,7 +320,10 @@ func (s *Session) Update(model interface{}) (int64, error) {
 	sqlStr, args := s.sqlGen.GenUpdate(value, table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
 	var result sql.Result
-	if s.hasShardKey {
+	if !s.hasShardKey && s.engine.cluster.has1DbGroup() {
+		s.group, _ = s.engine.cluster.DefaultGroup()
+	}
+	if s.group != nil {
 		node, _ := s.group.GetMaster()
 		if result, err = node.Db.Exec(sqlStr, args...); err != nil {
 			return 0, err
@@ -348,7 +357,10 @@ func (s *Session) Delete(model interface{}) (int64, error) {
 	sqlStr, args := s.sqlGen.GenDelete(table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
 	var result sql.Result
-	if s.hasShardKey {
+	if !s.hasShardKey && s.engine.cluster.has1DbGroup() {
+		s.group, _ = s.engine.cluster.DefaultGroup()
+	}
+	if s.group != nil {
 		node, _ := s.group.GetMaster()
 		s.logger.Printf("exec sql against node %s", node.Name)
 		if result, err = node.Db.Exec(sqlStr, args...); err != nil {
