@@ -71,6 +71,12 @@ type BaseGenerator struct {
 	wrapFunc func(string) string
 }
 
+func newBaseGenerator() *BaseGenerator {
+	g := BaseGenerator{bufPool: &sync.Pool{}}
+	g.bufPool.New = func() interface{} { return &bytes.Buffer{} }
+	return &g
+}
+
 func (b *BaseGenerator) putBuf(buf *bytes.Buffer) {
 	buf.Reset()
 	b.bufPool.Put(buf)

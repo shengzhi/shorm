@@ -17,7 +17,11 @@ import (
 )
 
 var sqlGenDict = map[string]SqlGenerator{
-	"mssql": NewMSSqlGenerator(),
+	"mssql":    NewMSSqlGenerator(),
+	"mysql":    newBaseGenerator(),
+	"mymysql":  newBaseGenerator(),
+	"postgres": newBaseGenerator(),
+	"sqlite":   newBaseGenerator(),
 }
 
 type emptyLogger struct {

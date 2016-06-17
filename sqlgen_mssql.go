@@ -5,24 +5,18 @@
 package shorm
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 )
 
 type MSSqlGenerator struct {
-	BaseGenerator
+	*BaseGenerator
 }
 
 func NewMSSqlGenerator() *MSSqlGenerator {
-	g := MSSqlGenerator{
-		BaseGenerator{
-			bufPool:  &sync.Pool{},
-			wrapFunc: func(s string) string { return fmt.Sprintf("[%s]", s) },
-		}}
-	g.bufPool.New = func() interface{} { return &bytes.Buffer{} }
+	g := MSSqlGenerator{BaseGenerator: newBaseGenerator()}
+	g.wrapFunc = func(s string) string { return fmt.Sprintf("[%s]", s) }
 	return &g
 }
 
