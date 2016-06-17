@@ -15,6 +15,10 @@ shorm is a orm tool wriitted in golang, which supports database sharding and mas
 
 # Drivers support
 - MsSql: github.com/denisenkom/go-mssqldb
+- Mysql: github.com/go-sql-driver/mysql
+- MyMysql: github.com/ziutek/mymysql/godrv
+- Postgres: github.com/lib/pq
+- SQLite: github.com/mattn/go-sqlite3
 
 # Change log
 
