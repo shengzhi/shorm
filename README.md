@@ -14,11 +14,11 @@ shorm is a orm tool wriitted in golang, which supports database sharding and mas
 - Struct field support, will be stored as json string
 
 # Drivers support
-- MsSql: github.com/denisenkom/go-mssqldb
-- Mysql: github.com/go-sql-driver/mysql
-- MyMysql: github.com/ziutek/mymysql/godrv
-- Postgres: github.com/lib/pq
-- SQLite: github.com/mattn/go-sqlite3
+- MsSql: [github.com/denisenkom/go-mssqldb](https://github.com/denisenkom/go-mssqld)
+- Mysql: [github.com/go-sql-driver/mysql](https://github.com/go-sql-driver/mysql)
+- MyMysql: [github.com/ziutek/mymysql/godrv](https://github.com/ziutek/mymysql/godrv)
+- Postgres: [github.com/lib/pq](https://github.com/lib/pq)
+- SQLite: [github.com/mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)
 
 # Change log
 
