@@ -104,7 +104,9 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 		case opType_rawQuery:
 			return s.clause, s.params
 		case opType_top:
-			buf.WriteString(fmt.Sprintf("top %v ", s.params...))
+			// buf.WriteString(fmt.Sprintf("top %v ", s.params...))
+			isPaging = true
+			pagingParam = []interface{}{0, 1}
 		case opType_cols:
 			colNames = s.clause
 		case opType_omit:
@@ -112,9 +114,7 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 		case opType_table:
 			buf.WriteString("%s")
 			buf.WriteString(fmt.Sprintf(" from %v", s.clause))
-			if isPaging {
-				buf.WriteString(fmt.Sprintf(" limit %v,%v", pagingParam[0], pagingParam[1]))
-			}
+
 		case opType_unlockTable:
 			buf.WriteString(" with(nolock) ")
 		case opType_id:
@@ -173,7 +173,9 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 			break
 		}
 	}
-
+	if isPaging {
+		buf.WriteString(fmt.Sprintf(" limit %v,%v", pagingParam[0], pagingParam[1]))
+	}
 	if len(colNames) <= 0 {
 		cols := make([]string, 0, len(table.Columns))
 		table.Columns.Foreach(func(colKey string, col *columnMetadata) {
@@ -219,7 +221,7 @@ func (m *BaseGenerator) wrapColumn(colName string) string {
 	if m.wrapFunc != nil {
 		return m.wrapFunc(colName)
 	}
-	return fmt.Sprintf(`"%s"`, colName)
+	return fmt.Sprintf(`%s`, colName)
 }
 
 func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) interface{} {

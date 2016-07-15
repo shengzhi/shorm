@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -85,7 +86,7 @@ func extractColMetadata(table *TableMetadata, structType reflect.Type) {
 			}
 			continue
 		}
-		col := &columnMetadata{}
+		col := &columnMetadata{isNullable: true}
 		col.convertFromField(field, tag)
 		table.Columns.Add(strings.ToLower(col.name), col)
 		if col.isKey {
@@ -148,12 +149,12 @@ const (
 
 //data column metadata
 type columnMetadata struct {
-	name                        string
-	dbType                      reflect.Type
-	goType                      reflect.Type
-	fieldIndex                  []int
-	isKey, isAutoId, isShardKey bool
-	rwType, specialType         int8
+	name                                    string
+	dbType                                  reflect.Type
+	goType                                  reflect.Type
+	fieldIndex                              []int
+	isKey, isAutoId, isShardKey, isNullable bool
+	rwType, specialType                     int8
 }
 
 var byteType = reflect.TypeOf(new(sql.RawBytes)).Elem()
@@ -162,19 +163,6 @@ func (c *columnMetadata) convertFromField(field reflect.StructField, tag string)
 	c.fieldIndex = field.Index
 	c.goType = field.Type
 	c.rwType = io_type_rw
-
-	switch field.Type.Kind() {
-	case reflect.Slice, reflect.Struct:
-		if field.Type.Name() == "Time" {
-			c.dbType = c.goType
-			c.specialType = specialType_time
-		} else {
-			c.specialType = specialType_rawbytes
-			c.dbType = byteType
-		}
-	default:
-		c.dbType = c.goType
-	}
 	tagVals := strings.Split(tag, ",")
 	if len(tagVals) <= 0 {
 		c.name = field.Name
@@ -199,8 +187,47 @@ func (c *columnMetadata) convertFromField(field reflect.StructField, tag string)
 			c.rwType = io_type_rw
 		case "shard":
 			c.isShardKey = true
+		case "notnull":
+			c.isNullable = false
 		}
 	}
+	switch field.Type.Kind() {
+	case reflect.Slice, reflect.Struct:
+		if field.Type.Name() == "Time" {
+			c.dbType = reflect.TypeOf(&time.Time{})
+			c.specialType = specialType_time
+		} else {
+			c.specialType = specialType_rawbytes
+			c.dbType = byteType
+		}
+	case reflect.String:
+		if c.isNullable {
+			c.dbType = reflect.TypeOf(sql.NullString{})
+		} else {
+			c.dbType = c.goType
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if c.isNullable {
+			c.dbType = reflect.TypeOf(sql.NullInt64{})
+		} else {
+			c.dbType = c.goType
+		}
+	case reflect.Float32, reflect.Float64:
+		if c.isNullable {
+			c.dbType = reflect.TypeOf(sql.NullFloat64{})
+		} else {
+			c.dbType = c.goType
+		}
+	case reflect.Bool:
+		if c.isNullable {
+			c.dbType = reflect.TypeOf(sql.NullBool{})
+		} else {
+			c.dbType = c.goType
+		}
+	default:
+		c.dbType = c.goType
+	}
+
 }
 
 type DataType string
