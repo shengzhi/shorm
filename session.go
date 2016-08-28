@@ -6,6 +6,7 @@ package shorm
 
 import (
 	"log"
+	"reflect"
 	"strings"
 )
 
@@ -53,6 +54,10 @@ func (s *Session) Query(query string, args ...interface{}) *Session {
 	subSql.params = append(subSql.params, args...)
 	s.clauseList = append(s.clauseList, subSql)
 	return s
+}
+
+func (s *Session) Exec(sql string, args ...interface{}) *Session {
+	return s.Query(sql, args...)
 }
 
 func (s *Session) Id(id interface{}) *Session {
@@ -105,7 +110,20 @@ func (s *Session) In(colName string, args ...interface{}) *Session {
 		clause: colName,
 	}
 	if len(args) > 0 {
-		subSql.params = append(subSql.params, args...)
+		if len(args) > 1 {
+			subSql.params = append(subSql.params, args...)
+		} else {
+			arg := args[0]
+			val := reflect.ValueOf(arg)
+			if val.Type().Kind() == reflect.Slice {
+				for i := 0; i < val.Len(); i++ {
+					subSql.params = append(subSql.params, val.Index(i).Interface())
+				}
+			} else {
+				subSql.params = append(subSql.params, arg)
+			}
+		}
+
 	}
 	s.clauseList = append(s.clauseList, subSql)
 	return s

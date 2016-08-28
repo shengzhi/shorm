@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -59,11 +60,15 @@ func (list sqlClauseList) Swap(i, j int) {
 type SqlGenerator interface {
 	GenSelect(table *TableMetadata, sqls sqlClauseList) (string, []interface{})
 	//Generates insert sql
-	GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{})
+	GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList, hasMultiRows bool) (string, []interface{})
+	//Generates multiple rows
+	GenMultiInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{})
 	//Generats update sql
 	GenUpdate(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{})
 	//Generats delete sql
 	GenDelete(table *TableMetadata, sqls sqlClauseList) (string, []interface{})
+	//Generates count sql
+	GenCount(table *TableMetadata, sqls sqlClauseList) (string, []interface{})
 }
 
 type BaseGenerator struct {
@@ -86,6 +91,72 @@ func (b *BaseGenerator) getBuf() *bytes.Buffer {
 	return b.bufPool.Get().(*bytes.Buffer)
 }
 
+func (m *BaseGenerator) GenCount(table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
+	buf := m.getBuf()
+	defer m.putBuf(buf)
+	var args []interface{}
+	sort.Sort(sqls)
+	hasWhere := false
+	buf.WriteString(fmt.Sprintf("select count(1) from %s", m.wrapColumn(table.Name)))
+	for _, s := range sqls {
+		switch s.op {
+		case opType_rawQuery:
+			return s.clause, s.params
+		case opType_unlockTable:
+			buf.WriteString(" with(nolock) ")
+		case opType_id:
+			if hasWhere {
+				buf.WriteString(fmt.Sprintf(" and %s=?", table.IdColumn.name))
+			} else {
+				buf.WriteString(fmt.Sprintf(" where %s=?", table.IdColumn.name))
+				hasWhere = true
+			}
+			args = append(args, s.params...)
+		case opType_where:
+			if hasWhere {
+				buf.WriteString(fmt.Sprintf(" and %s", s.clause))
+			} else {
+				buf.WriteString(fmt.Sprintf(" where %s", s.clause))
+				hasWhere = true
+			}
+			args = append(args, s.params...)
+		case opType_and:
+			buf.WriteString(fmt.Sprintf(" and %s", s.clause))
+			args = append(args, s.params...)
+		case opType_or:
+			buf.WriteString(fmt.Sprintf(" or (%s)", s.clause))
+			args = append(args, s.params...)
+		case opType_in:
+			if len(s.params) > 0 {
+				if hasWhere {
+					buf.WriteString(fmt.Sprintf(" and %s in (%s)", s.clause, m.makeInArgs(s.params)))
+				} else {
+					buf.WriteString(fmt.Sprintf(" where %s in (%s)", s.clause, m.makeInArgs(s.params)))
+					hasWhere = true
+				}
+			}
+		case opType_in_or:
+			if len(s.params) > 0 {
+				buf.WriteString(fmt.Sprintf(" or(%s in (%s))", s.clause, m.makeInArgs(s.params)))
+			}
+		case opType_between:
+			if hasWhere {
+				buf.WriteString(fmt.Sprintf(" and %s between ? and ?", s.clause))
+			} else {
+				buf.WriteString(fmt.Sprintf(" where %s between ? and ?", s.clause))
+				hasWhere = true
+			}
+			args = append(args, s.params...)
+		case opType_between_or:
+			buf.WriteString(fmt.Sprintf(" or (%s between ? and ?)", s.clause))
+			args = append(args, s.params...)
+		default:
+			break
+		}
+	}
+	return fmt.Sprintf(buf.String()), args
+}
+
 //Generates select SQL statement
 func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
 	buf := m.getBuf()
@@ -104,7 +175,9 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 		case opType_rawQuery:
 			return s.clause, s.params
 		case opType_top:
-			buf.WriteString(fmt.Sprintf("top %v ", s.params...))
+			// buf.WriteString(fmt.Sprintf("top %v ", s.params...))
+			isPaging = true
+			pagingParam = []interface{}{0, 1}
 		case opType_cols:
 			colNames = s.clause
 		case opType_omit:
@@ -112,9 +185,7 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 		case opType_table:
 			buf.WriteString("%s")
 			buf.WriteString(fmt.Sprintf(" from %v", s.clause))
-			if isPaging {
-				buf.WriteString(fmt.Sprintf(" limit %v,%v", pagingParam[0], pagingParam[1]))
-			}
+
 		case opType_unlockTable:
 			buf.WriteString(" with(nolock) ")
 		case opType_id:
@@ -173,7 +244,9 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 			break
 		}
 	}
-
+	if isPaging {
+		buf.WriteString(fmt.Sprintf(" limit %v,%v", pagingParam[0], pagingParam[1]))
+	}
 	if len(colNames) <= 0 {
 		cols := make([]string, 0, len(table.Columns))
 		table.Columns.Foreach(func(colKey string, col *columnMetadata) {
@@ -219,7 +292,11 @@ func (m *BaseGenerator) wrapColumn(colName string) string {
 	if m.wrapFunc != nil {
 		return m.wrapFunc(colName)
 	}
-	return fmt.Sprintf(`"%s"`, colName)
+	return fmt.Sprintf("`%s`", colName)
+}
+
+func (b *BaseGenerator) isCustomType(t reflect.Type) bool {
+	return len(t.PkgPath()) > 0
 }
 
 func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) interface{} {
@@ -230,7 +307,15 @@ func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) i
 	result := field.Interface()
 
 	switch colMeta.goType.Kind() {
-	case reflect.Struct, reflect.Slice:
+	case reflect.Slice:
+		if field.Len() <= 0 {
+			return ""
+		}
+		data, _ := json.MarshalIndent(result, "", "")
+		var buf bytes.Buffer
+		json.Compact(&buf, data)
+		return buf.String()
+	case reflect.Struct:
 		if colMeta.specialType == specialType_time {
 			return result
 		}
@@ -238,13 +323,72 @@ func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) i
 		var buf bytes.Buffer
 		json.Compact(&buf, data)
 		return buf.String()
+	case reflect.String:
+		if b.isCustomType(colMeta.goType) {
+			return fmt.Sprintf("%v", result)
+		}
+		return result
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if b.isCustomType(colMeta.goType) {
+			val, _ := strconv.ParseInt(fmt.Sprintf("%d", result), 10, 64)
+			return val
+		}
+		return result
+	case reflect.Float32, reflect.Float64:
+		if b.isCustomType(colMeta.goType) {
+			val, _ := strconv.ParseFloat(fmt.Sprintf("%d", result), 64)
+			return val
+		}
+		return result
 	default:
 		return result
 	}
 }
 
+func (m *BaseGenerator) GenMultiInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
+	buf := m.getBuf()
+	defer m.putBuf(buf)
+	args := make([]interface{}, 0, len(table.Columns))
+	var colNames []string
+	include := true
+Loop:
+	for _, s := range sqls {
+		switch s.op {
+		case opType_rawQuery:
+			return s.clause, s.params
+		case opType_cols:
+			colNames = strings.Split(strings.ToLower(s.clause), ",")
+			break Loop
+		case opType_omit:
+			colNames = strings.Split(strings.ToLower(s.clause), ",")
+			include = false
+		}
+	}
+	table.Columns.Foreach(func(col string, meta *columnMetadata) {
+		if meta.isAutoId || meta.rwType&io_type_wo != io_type_wo {
+			return
+		}
+		if len(colNames) <= 0 {
+			args = append(args, m.getValue(meta, value))
+			return
+		}
+		for _, name := range colNames {
+			if name == col && include {
+				args = append(args, m.getValue(meta, value))
+				return
+			}
+			if name != col && !include {
+				args = append(args, m.getValue(meta, value))
+				return
+			}
+		}
+	})
+	buf.WriteString(fmt.Sprintf("(%s),", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
+	return buf.String(), args
+}
+
 //Generates insert SQL statement
-func (m *BaseGenerator) GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
+func (m *BaseGenerator) GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList, hasMultiRows bool) (string, []interface{}) {
 	buf := m.getBuf()
 	defer m.putBuf(buf)
 	args := make([]interface{}, 0, len(table.Columns))
@@ -292,7 +436,11 @@ Loop:
 		}
 	})
 	buf.Truncate(buf.Len() - 1)
-	buf.WriteString(fmt.Sprintf(") values(%s)", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
+	if hasMultiRows {
+		buf.WriteString(fmt.Sprintf(") values(%s),", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
+	} else {
+		buf.WriteString(fmt.Sprintf(") values(%s);", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
+	}
 	return buf.String(), args
 }
 

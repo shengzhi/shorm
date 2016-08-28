@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 type valuePairList []valuePairs
@@ -22,6 +23,7 @@ type valuePair struct {
 	index       []int
 	value       interface{}
 	specialType int8
+	isNullable  bool
 }
 
 func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
@@ -41,7 +43,8 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 	for i := range rowCols {
 		if v, ok := colMap[strings.ToLower(rowCols[i])]; ok {
 			values = append(values, reflect.New(v.dbType).Interface())
-			pairs[i] = valuePair{index: v.fieldIndex, specialType: v.specialType}
+			// fmt.Println(v.name, v.dbType.Name(), v.isNullable)
+			pairs[i] = valuePair{index: v.fieldIndex, specialType: v.specialType, isNullable: v.isNullable}
 		} else {
 			values = append(values, &sql.RawBytes{})
 		}
@@ -56,6 +59,7 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 			}
 			pairRow[i].index = pairs[i].index
 			pairRow[i].specialType = pairs[i].specialType
+			pairRow[i].isNullable = pairs[i].isNullable
 			if pairs[i].specialType == specialType_rawbytes {
 				rawBytes := reflect.ValueOf(v).Elem().Interface().(sql.RawBytes)
 				slice := make([]byte, 0, len(rawBytes))
@@ -130,13 +134,50 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 		if len(pairs[i].index) <= 0 {
 			continue
 		}
+		if pairs[i].value == nil {
+			continue
+		}
 		field := val.FieldByIndex(pairs[i].index)
 		switch field.Kind() {
 		case reflect.Struct, reflect.Slice:
 			if pairs[i].specialType == specialType_time {
-				field.Set(reflect.ValueOf(pairs[i].value))
+				t := pairs[i].value.(*time.Time)
+				if t == nil {
+					break
+				}
+				field.Set(reflect.ValueOf(*t))
 			} else {
 				json.Unmarshal(pairs[i].value.([]byte), field.Addr().Interface())
+			}
+		case reflect.String:
+			if pairs[i].isNullable {
+				field.SetString(pairs[i].value.(sql.NullString).String)
+			} else {
+				field.Set(reflect.ValueOf(pairs[i].value))
+			}
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint:
+			if pairs[i].isNullable {
+				field.SetUint(uint64(pairs[i].value.(sql.NullInt64).Int64))
+			} else {
+				field.Set(reflect.ValueOf(pairs[i].value))
+			}
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if pairs[i].isNullable {
+				field.SetInt(pairs[i].value.(sql.NullInt64).Int64)
+			} else {
+				field.Set(reflect.ValueOf(pairs[i].value))
+			}
+		case reflect.Float32, reflect.Float64:
+			if pairs[i].isNullable {
+				field.SetFloat(pairs[i].value.(sql.NullFloat64).Float64)
+			} else {
+				field.Set(reflect.ValueOf(pairs[i].value))
+			}
+		case reflect.Bool:
+			if pairs[i].isNullable {
+				field.SetBool(pairs[i].value.(sql.NullBool).Bool)
+			} else {
+				field.Set(reflect.ValueOf(pairs[i].value))
 			}
 		default:
 			field.Set(reflect.ValueOf(pairs[i].value))

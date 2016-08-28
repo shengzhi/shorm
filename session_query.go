@@ -14,6 +14,79 @@ import (
 	"time"
 )
 
+func (s *Session) Count(model interface{}) (int64, error) {
+	defer s.reset()
+	table, err := getTableMeta(model)
+	if err != nil {
+		return 0, err
+	}
+	sqlStr, args := s.sqlGen.GenCount(table, s.clauseList)
+	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	if s.hasShardKey {
+		return s.innerCountWithShardkey(sqlStr, args...)
+	}
+	if s.engine.cluster.has1DbGroup() {
+		s.group, _ = s.engine.cluster.DefaultGroup()
+		return s.innerCountWithShardkey(sqlStr, args...)
+	}
+
+	return s.innerCountWithoutShardkey(sqlStr, args...)
+}
+
+func (s *Session) innerCountWithShardkey(sqlStr string, args ...interface{}) (int64, error) {
+	var node *DbNode
+	var err error
+	if s.forceMaster {
+		node, err = s.group.GetMaster()
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		node = s.group.GetNode()
+	}
+	s.logger.Println("Node name:", node.Name)
+	row := node.Db.QueryRow(sqlStr, args...)
+	var result int64
+	err = row.Scan(&result)
+	return result, err
+}
+
+func (s *Session) innerCountWithoutShardkey(sqlStr string, args ...interface{}) (int64, error) {
+	ch_row := make(chan int64, s.engine.cluster.RealGroups)
+	for _, dg := range s.engine.cluster.Groups {
+		var node *DbNode
+		if s.forceMaster {
+			node, _ = dg.GetMaster()
+		} else {
+			node = dg.GetNode()
+		}
+		go func() {
+			s.logger.Println("execute sql query againt db:", node.Name)
+			row := node.Db.QueryRow(sqlStr, args...)
+			var result int64
+			row.Scan(&result)
+			ch_row <- result
+		}()
+	}
+	var retResult int64
+	count := 0
+Loop:
+	for {
+		select {
+		case rslt := <-ch_row:
+			retResult += rslt
+			count++
+			if count >= s.engine.cluster.RealGroups {
+				break Loop
+			}
+			continue Loop
+		case <-time.After(time.Second * 30):
+			break Loop
+		}
+	}
+	return retResult, nil
+}
+
 //Retrieve one record
 func (s *Session) Get(model interface{}) (bool, error) {
 	defer s.reset()

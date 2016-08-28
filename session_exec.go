@@ -7,6 +7,7 @@
 package shorm
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"reflect"
@@ -40,19 +41,27 @@ func (s *Session) getTableAndValue(model interface{}) (table *TableMetadata, val
 }
 
 func (s *Session) genMultiInsertSql(table *TableMetadata, sliceValue reflect.Value) (string, []interface{}) {
-	sqls := make([]string, 0, sliceValue.Len())
 	totalArgs := make([]interface{}, 0, sliceValue.Len()*len(table.Columns))
+	var sqlbuf bytes.Buffer
 	var elementValue reflect.Value
 	for i := 0; i < sliceValue.Len(); i++ {
 		elementValue = sliceValue.Index(i)
 		if elementValue.Type().Kind() == reflect.Ptr {
 			elementValue = elementValue.Elem()
 		}
-		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList)
-		sqls = append(sqls, sqlstr)
-		totalArgs = append(totalArgs, args...)
+		if i > 0 {
+			sqlstr, args := s.sqlGen.GenMultiInsert(elementValue, table, s.clauseList)
+			sqlbuf.WriteString(sqlstr)
+			totalArgs = append(totalArgs, args...)
+		} else {
+			sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList, true)
+			sqlbuf.WriteString(sqlstr)
+			totalArgs = append(totalArgs, args...)
+		}
 	}
-	return strings.Join(sqls, ";"), totalArgs
+	sqlbuf.Truncate(sqlbuf.Len() - 1)
+	sqlbuf.WriteString(";")
+	return sqlbuf.String(), totalArgs
 }
 
 func (s *Session) insertSlice2(table *TableMetadata, slice reflect.Value) (int64, error) {
@@ -137,7 +146,7 @@ func (s *Session) InsertSlice(slicePtr interface{}) (*SqlResult, error) {
 		if elementValue.Type().Kind() == reflect.Ptr {
 			elementValue = elementValue.Elem()
 		}
-		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList)
+		sqlstr, args := s.sqlGen.GenInsert(elementValue, table, s.clauseList, false)
 		if v, ok := shardGroup[group]; ok {
 			v.values = append(v.values, element)
 			v.sqls = append(v.sqls, sqlstr)
@@ -238,7 +247,7 @@ func (s *Session) Insert(model interface{}) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList)
+	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList, false)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
 
 	var result sql.Result
@@ -248,7 +257,10 @@ func (s *Session) Insert(model interface{}) (int64, error) {
 	if autoId, err := result.LastInsertId(); err == nil {
 		for _, v := range table.Columns {
 			if v.isAutoId {
-				value.FieldByIndex(v.fieldIndex).Set(reflect.ValueOf(autoId))
+				autoField := value.FieldByIndex(v.fieldIndex)
+				if autoField.CanSet() {
+					autoField.SetInt(autoId)
+				}
 				break
 			}
 		}
@@ -262,7 +274,7 @@ func (s *Session) insertWithTx(tx *sql.Tx, model interface{}) error {
 	if err != nil {
 		return err
 	}
-	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList)
+	sqlStr, args := s.sqlGen.GenInsert(value, table, s.clauseList, false)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
 	var stmt *sql.Stmt
 	stmt, err = tx.Prepare(sqlStr)
@@ -319,6 +331,9 @@ func (s *Session) Update(model interface{}) (int64, error) {
 	}
 	sqlStr, args := s.sqlGen.GenUpdate(value, table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	if !strings.Contains(sqlStr, "where") {
+		return 0, fmt.Errorf("'%s',UPDATE statement has no condition, DANGEROUS!", sqlStr)
+	}
 	var result sql.Result
 	if !s.hasShardKey && s.engine.cluster.has1DbGroup() {
 		s.group, _ = s.engine.cluster.DefaultGroup()
@@ -342,6 +357,9 @@ func (s *Session) updateWithTx(tx *sql.Tx, model interface{}) error {
 	}
 	sqlStr, args := s.sqlGen.GenUpdate(value, table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	if !strings.Contains(sqlStr, "where") {
+		return fmt.Errorf("'%s',UPDATE statement has no condition, DANGEROUS!", sqlStr)
+	}
 	_, err = tx.Exec(sqlStr, args...)
 	return err
 }
@@ -356,6 +374,9 @@ func (s *Session) Delete(model interface{}) (int64, error) {
 	}
 	sqlStr, args := s.sqlGen.GenDelete(table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	if !strings.Contains(sqlStr, "where") {
+		return 0, fmt.Errorf("'%s',DELETE statement has no condition, DANGEROUS!", sqlStr)
+	}
 	var result sql.Result
 	if !s.hasShardKey && s.engine.cluster.has1DbGroup() {
 		s.group, _ = s.engine.cluster.DefaultGroup()
@@ -418,6 +439,9 @@ func (s *Session) deleteWithTx(tx *sql.Tx, model interface{}) error {
 	}
 	sqlStr, args := s.sqlGen.GenDelete(table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlStr, args)
+	if !strings.Contains(sqlStr, "where") {
+		return fmt.Errorf("'%s',DELETE statement has no condition, DANGEROUS!", sqlStr)
+	}
 	_, err = tx.Exec(sqlStr, args...)
 	return err
 }

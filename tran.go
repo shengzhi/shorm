@@ -52,6 +52,26 @@ func (d *DbTrans) Omit(cols string) *DbTrans {
 	return d
 }
 
+func (d *DbTrans) Id(id interface{}) *DbTrans {
+	d.session.Id(id)
+	return d
+}
+
+func (d *DbTrans) Where(clause string, args ...interface{}) *DbTrans {
+	d.session.Where(clause, args...)
+	return d
+}
+
+func (d *DbTrans) And(clause string, args ...interface{}) *DbTrans {
+	d.session.And(clause, args...)
+	return d
+}
+
+func (d *DbTrans) Exec(sql string, args ...interface{}) *DbTrans {
+	d.session.Exec(sql, args...)
+	return d
+}
+
 func (d *DbTrans) Insert(model interface{}) error {
 	return d.session.insertWithTx(d.tx, model)
 }

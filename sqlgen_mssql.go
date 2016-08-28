@@ -6,6 +6,7 @@ package shorm
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -134,4 +135,61 @@ func (m *MSSqlGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (st
 		return sqlStr, args
 	}
 	return fmt.Sprintf(buf.String(), colNames), args
+}
+
+func (m *MSSqlGenerator) GenMultiInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList) (string, []interface{}) {
+	return m.GenInsert(value, table, sqls, true)
+}
+
+//Generates insert SQL statement
+func (m *MSSqlGenerator) GenInsert(value reflect.Value, table *TableMetadata, sqls sqlClauseList, hasMultiRows bool) (string, []interface{}) {
+	buf := m.getBuf()
+	defer m.putBuf(buf)
+	args := make([]interface{}, 0, len(table.Columns))
+	var colNames []string
+	include := true
+Loop:
+	for _, s := range sqls {
+		switch s.op {
+		case opType_rawQuery:
+			return s.clause, s.params
+		case opType_cols:
+			colNames = strings.Split(strings.ToLower(s.clause), ",")
+			break Loop
+		case opType_omit:
+			colNames = strings.Split(strings.ToLower(s.clause), ",")
+			include = false
+		}
+	}
+	buf.WriteString("insert into ")
+	buf.WriteString(m.wrapColumn(table.Name))
+	buf.WriteString("(")
+	table.Columns.Foreach(func(col string, meta *columnMetadata) {
+		if meta.isAutoId || meta.rwType&io_type_wo != io_type_wo {
+			return
+		}
+		if len(colNames) <= 0 {
+			buf.WriteString(m.wrapColumn(meta.name))
+			buf.WriteString(",")
+			args = append(args, m.getValue(meta, value))
+			return
+		}
+		for _, name := range colNames {
+			if name == col && include {
+				buf.WriteString(m.wrapColumn(meta.name))
+				buf.WriteString(",")
+				args = append(args, m.getValue(meta, value))
+				return
+			}
+			if name != col && !include {
+				buf.WriteString(m.wrapColumn(meta.name))
+				buf.WriteString(",")
+				args = append(args, m.getValue(meta, value))
+				return
+			}
+		}
+	})
+	buf.Truncate(buf.Len() - 1)
+	buf.WriteString(fmt.Sprintf(") values(%s);", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
+	return buf.String(), args
 }
