@@ -269,19 +269,25 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 func (m *BaseGenerator) makeInArgs(params []interface{}) string {
 	element := reflect.Indirect(reflect.ValueOf(params[0]))
 	isNumber := false
+	format := "'%v',"
 	switch element.Type().Kind() {
 	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8,
-		reflect.Float32, reflect.Float64:
+		reflect.Uint, reflect.Uint8, reflect.Uint16,
+		reflect.Uint32, reflect.Uint64:
 		isNumber = true
+		format = "%d,"
+	case reflect.Float32, reflect.Float64:
+		isNumber = true
+		format = "%f,"
 	default:
 		isNumber = false
 	}
 	var buf bytes.Buffer
 	for _, arg := range params {
 		if isNumber {
-			buf.WriteString(fmt.Sprintf("%v,", arg))
+			buf.WriteString(fmt.Sprintf(format, arg))
 		} else {
-			buf.WriteString(fmt.Sprintf("'%v',", arg))
+			buf.WriteString(fmt.Sprintf(format, arg))
 		}
 	}
 	buf.Truncate(buf.Len() - 1)
