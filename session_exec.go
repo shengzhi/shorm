@@ -288,7 +288,10 @@ func (s *Session) insertWithTx(tx *sql.Tx, model interface{}) error {
 	if autoId, err := result.LastInsertId(); err == nil {
 		for _, v := range table.Columns {
 			if v.isAutoId {
-				value.FieldByIndex(v.fieldIndex).Set(reflect.ValueOf(autoId))
+				autoField := value.FieldByIndex(v.fieldIndex)
+				if autoField.CanSet() {
+					autoField.SetInt(autoId)
+				}
 				break
 			}
 		}

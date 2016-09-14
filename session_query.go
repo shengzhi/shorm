@@ -236,7 +236,9 @@ func (s *Session) Find(slicePtr interface{}) error {
 			s.group, _ = s.engine.cluster.DefaultGroup()
 		}
 		rows, err = s.innerGetWithShardKey(sqlstr, args...)
-		if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		} else if err != nil {
 			return err
 		}
 		if valuePair, err = row2Slice(rows, table.Columns); err != nil {

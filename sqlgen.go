@@ -27,12 +27,12 @@ const (
 	opType_unlockTable
 	opType_id
 	opType_where
-	opType_and
-	opType_or
 	opType_in
 	opType_in_or
 	opType_between
 	opType_between_or
+	opType_and
+	opType_or
 	opType_orderby
 )
 
