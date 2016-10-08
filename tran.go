@@ -67,6 +67,11 @@ func (d *DbTrans) And(clause string, args ...interface{}) *DbTrans {
 	return d
 }
 
+func (d *DbTrans) In(colName string, args ...interface{}) *DbTrans {
+	d.session.In(colName, args...)
+	return d
+}
+
 func (d *DbTrans) Exec(sql string, args ...interface{}) *DbTrans {
 	d.session.Exec(sql, args...)
 	return d

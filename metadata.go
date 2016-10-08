@@ -59,11 +59,11 @@ func extractTableMetadata(structVal reflect.Value) *TableMetadata {
 		IsShardinger: structType.Implements(shardingerType),
 	}
 
-	extractColMetadata(table, structType)
+	extractColMetadata(table, structType, nil)
 	return table
 }
 
-func extractColMetadata(table *TableMetadata, structType reflect.Type) {
+func extractColMetadata(table *TableMetadata, structType reflect.Type, parentFieldIndex []int) {
 	tableNameType := reflect.TypeOf(new(TableName)).Elem()
 	var field reflect.StructField
 	for i := 0; i < structType.NumField(); i++ {
@@ -82,11 +82,11 @@ func extractColMetadata(table *TableMetadata, structType reflect.Type) {
 				elementType = field.Type.Elem()
 			}
 			if elementType.Kind() == reflect.Struct {
-				extractColMetadata(table, elementType)
+				extractColMetadata(table, elementType, field.Index)
 			}
 			continue
 		}
-		col := &columnMetadata{isNullable: true}
+		col := &columnMetadata{isNullable: true, parentFieldIndex: parentFieldIndex}
 		col.convertFromField(field, tag)
 		table.Columns.Add(strings.ToLower(col.name), col)
 		if col.isKey {
@@ -152,7 +152,7 @@ type columnMetadata struct {
 	name                                    string
 	dbType                                  reflect.Type
 	goType                                  reflect.Type
-	fieldIndex                              []int
+	fieldIndex, parentFieldIndex            []int
 	isKey, isAutoId, isShardKey, isNullable bool
 	rwType, specialType                     int8
 }

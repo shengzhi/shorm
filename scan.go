@@ -20,10 +20,10 @@ type valuePairList []valuePairs
 type valuePairs []valuePair
 
 type valuePair struct {
-	index       []int
-	value       interface{}
-	specialType int8
-	isNullable  bool
+	pindex, index []int
+	value         interface{}
+	specialType   int8
+	isNullable    bool
 }
 
 func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
@@ -43,8 +43,8 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 	for i := range rowCols {
 		if v, ok := colMap[strings.ToLower(rowCols[i])]; ok {
 			values = append(values, reflect.New(v.dbType).Interface())
-			// fmt.Println(v.name, v.dbType.Name(), v.isNullable)
-			pairs[i] = valuePair{index: v.fieldIndex, specialType: v.specialType, isNullable: v.isNullable}
+			// fmt.Println(v.name, v.dbType.Name(), v.parentFieldIndex)
+			pairs[i] = valuePair{pindex: v.parentFieldIndex, index: v.fieldIndex, specialType: v.specialType, isNullable: v.isNullable}
 		} else {
 			values = append(values, &sql.RawBytes{})
 		}
@@ -57,6 +57,7 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 			if len(pairs[i].index) <= 0 {
 				continue
 			}
+			pairRow[i].pindex = pairs[i].pindex
 			pairRow[i].index = pairs[i].index
 			pairRow[i].specialType = pairs[i].specialType
 			pairRow[i].isNullable = pairs[i].isNullable
@@ -124,6 +125,7 @@ func toStructList(list valuePairList, slicePtr interface{}) error {
 }
 
 func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
+	// fmt.Println(pairs)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
@@ -137,7 +139,14 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 		if pairs[i].value == nil {
 			continue
 		}
-		field := val.FieldByIndex(pairs[i].index)
+		var field reflect.Value
+		if pairs[i].pindex == nil || len(pairs[i].pindex) <= 0 {
+			field = val.FieldByIndex(pairs[i].index)
+		} else {
+			field = val.FieldByIndex(pairs[i].pindex)
+			field = field.FieldByIndex(pairs[i].index)
+		}
+
 		switch field.Kind() {
 		case reflect.Struct, reflect.Slice:
 			if pairs[i].specialType == specialType_time {

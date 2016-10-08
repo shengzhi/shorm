@@ -22,6 +22,27 @@ type Session struct {
 
 }
 
+// Copy 复制session
+func (s *Session) Copy() *Session {
+	copy := &Session{
+		group:       s.group,
+		engine:      s.engine,
+		logger:      s.logger,
+		sqlGen:      s.sqlGen,
+		hasShardKey: s.hasShardKey,
+		isWrite:     false,
+		forceMaster: s.forceMaster,
+	}
+	for _, clause := range s.clauseList {
+		copy.clauseList = append(copy.clauseList, sqlClause{
+			op:     clause.op,
+			clause: clause.clause,
+			params: clause.params,
+		})
+	}
+	return copy
+}
+
 func (s *Session) reset() {
 	s.group = nil
 	s.clauseList = nil
