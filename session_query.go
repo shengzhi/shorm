@@ -10,9 +10,19 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 )
+
+// Scalar 获取一个值
+func (s *Session) Scalar(sql string, v interface{}, args ...interface{}) error {
+	defer s.reset()
+	s.group, _ = s.engine.cluster.DefaultGroup()
+	node := s.group.GetNode()
+	row := node.Db.QueryRow(sql, args...)
+	return row.Scan(v)
+}
 
 func (s *Session) Count(model interface{}) (int64, error) {
 	defer s.reset()
@@ -216,7 +226,9 @@ func (s *Session) Find(slicePtr interface{}) error {
 
 	sqlstr, args := s.sqlGen.GenSelect(table, s.clauseList)
 	s.logger.Printf("sql:%s, args:%#v\r\n", sqlstr, args)
-
+	if !(strings.Contains(sqlstr, "where") || strings.Contains(sqlstr, "limit")) {
+		return fmt.Errorf("'%s',table scan, DANGEROUS!", sqlstr)
+	}
 	var valuePair valuePairList
 	if !(s.hasShardKey || s.engine.cluster.has1DbGroup()) {
 		row_ch := s.innerFindWithoutShardKey(sqlstr, args...)

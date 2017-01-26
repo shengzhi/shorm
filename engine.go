@@ -248,3 +248,9 @@ func (e *Engine) EnableDebug() {
 func (e *Engine) SetLogger(logger *log.Logger) {
 	e.Logger = logger
 }
+
+// GetTableName 获取实体对应的数据表名称
+func GetTableName(model interface{}) string {
+	meta, _ := getTableMeta(model)
+	return meta.Name
+}

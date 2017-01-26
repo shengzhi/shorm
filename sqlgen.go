@@ -307,12 +307,21 @@ func (b *BaseGenerator) isCustomType(t reflect.Type) bool {
 
 func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) interface{} {
 	field := value.FieldByIndex(colMeta.fieldIndex)
+	originField := field
 	if field.Type().Kind() == reflect.Ptr {
 		field = field.Elem()
 	}
 	result := field.Interface()
 
 	switch colMeta.goType.Kind() {
+	case reflect.Ptr:
+		if colMeta.isDBConverter {
+			return originField.Interface().(Marshaler).ToDB()
+		}
+		data, _ := json.MarshalIndent(result, "", "")
+		var buf bytes.Buffer
+		json.Compact(&buf, data)
+		return buf.String()
 	case reflect.Slice:
 		if field.Len() <= 0 {
 			return ""
@@ -324,6 +333,9 @@ func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) i
 	case reflect.Struct:
 		if colMeta.specialType == specialType_time {
 			return result
+		}
+		if colMeta.isDBConverter {
+			return result.(Marshaler).ToDB()
 		}
 		data, _ := json.MarshalIndent(result, "", "")
 		var buf bytes.Buffer

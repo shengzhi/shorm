@@ -20,10 +20,10 @@ type valuePairList []valuePairs
 type valuePairs []valuePair
 
 type valuePair struct {
-	pindex, index []int
-	value         interface{}
-	specialType   int8
-	isNullable    bool
+	pindex, index             []int
+	value                     interface{}
+	specialType               int8
+	isNullable, isDBConverter bool
 }
 
 func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
@@ -44,7 +44,13 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 		if v, ok := colMap[strings.ToLower(rowCols[i])]; ok {
 			values = append(values, reflect.New(v.dbType).Interface())
 			// fmt.Println(v.name, v.dbType.Name(), v.parentFieldIndex)
-			pairs[i] = valuePair{pindex: v.parentFieldIndex, index: v.fieldIndex, specialType: v.specialType, isNullable: v.isNullable}
+			pairs[i] = valuePair{
+				pindex:        v.parentFieldIndex,
+				index:         v.fieldIndex,
+				specialType:   v.specialType,
+				isNullable:    v.isNullable,
+				isDBConverter: v.isDBConverter,
+			}
 		} else {
 			values = append(values, &sql.RawBytes{})
 		}
@@ -61,6 +67,7 @@ func row2Slice(rows *sql.Rows, colMap ColMetadataMap) (valuePairList, error) {
 			pairRow[i].index = pairs[i].index
 			pairRow[i].specialType = pairs[i].specialType
 			pairRow[i].isNullable = pairs[i].isNullable
+			pairRow[i].isDBConverter = pairs[i].isDBConverter
 			if pairs[i].specialType == specialType_rawbytes {
 				rawBytes := reflect.ValueOf(v).Elem().Interface().(sql.RawBytes)
 				slice := make([]byte, 0, len(rawBytes))
@@ -148,6 +155,14 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 		}
 
 		switch field.Kind() {
+		case reflect.Ptr:
+			if pairs[i].isDBConverter {
+				newObj := reflect.New(field.Type().Elem())
+				newObj.Interface().(Unmarshaler).FromDB(pairs[i].value.([]byte))
+				field.Set(newObj)
+			} else {
+				json.Unmarshal(pairs[i].value.([]byte), field.Addr().Interface())
+			}
 		case reflect.Struct, reflect.Slice:
 			if pairs[i].specialType == specialType_time {
 				t := pairs[i].value.(*time.Time)
@@ -156,7 +171,11 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 				}
 				field.Set(reflect.ValueOf(*t))
 			} else {
-				json.Unmarshal(pairs[i].value.([]byte), field.Addr().Interface())
+				if pairs[i].isDBConverter {
+					field.Addr().Interface().(Unmarshaler).FromDB(pairs[i].value.([]byte))
+				} else {
+					json.Unmarshal(pairs[i].value.([]byte), field.Addr().Interface())
+				}
 			}
 		case reflect.String:
 			if pairs[i].isNullable {

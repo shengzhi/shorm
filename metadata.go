@@ -22,6 +22,16 @@ const (
 	tag_extends = "extends"
 )
 
+// Marshaler 读取数据库数据
+type Marshaler interface {
+	ToDB() interface{}
+}
+
+// Unmarshaler 写入数据库数据
+type Unmarshaler interface {
+	FromDB(b []byte) error
+}
+
 var meta_cache = make(map[uintptr]*TableMetadata, 0)
 var lock = &sync.Mutex{}
 
@@ -149,15 +159,17 @@ const (
 
 //data column metadata
 type columnMetadata struct {
-	name                                    string
-	dbType                                  reflect.Type
-	goType                                  reflect.Type
-	fieldIndex, parentFieldIndex            []int
-	isKey, isAutoId, isShardKey, isNullable bool
-	rwType, specialType                     int8
+	name                                                   string
+	dbType                                                 reflect.Type
+	goType                                                 reflect.Type
+	fieldIndex, parentFieldIndex                           []int
+	isKey, isAutoId, isShardKey, isNullable, isDBConverter bool
+	rwType, specialType                                    int8
 }
 
 var byteType = reflect.TypeOf(new(sql.RawBytes)).Elem()
+var dbMarshalerType = reflect.TypeOf((*Marshaler)(nil)).Elem()
+var dbUnmarshalerType = reflect.TypeOf((*Unmarshaler)(nil)).Elem()
 
 func (c *columnMetadata) convertFromField(field reflect.StructField, tag string) {
 	c.fieldIndex = field.Index
@@ -192,11 +204,21 @@ func (c *columnMetadata) convertFromField(field reflect.StructField, tag string)
 		}
 	}
 	switch field.Type.Kind() {
+	case reflect.Ptr:
+		if field.Type.Implements(dbMarshalerType) && field.Type.Implements(dbUnmarshalerType) {
+			c.isDBConverter = true
+		}
+		c.specialType = specialType_rawbytes
+		c.dbType = byteType
 	case reflect.Slice, reflect.Struct:
 		if field.Type.Name() == "Time" {
 			c.dbType = reflect.TypeOf(&time.Time{})
 			c.specialType = specialType_time
 		} else {
+			ptr := reflect.PtrTo(field.Type)
+			if ptr.Implements(dbMarshalerType) && ptr.Implements(dbUnmarshalerType) {
+				c.isDBConverter = true
+			}
 			c.specialType = specialType_rawbytes
 			c.dbType = byteType
 		}
