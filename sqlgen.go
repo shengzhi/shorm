@@ -306,13 +306,15 @@ func (b *BaseGenerator) isCustomType(t reflect.Type) bool {
 }
 
 func (b *BaseGenerator) getValue(colMeta *columnMetadata, value reflect.Value) interface{} {
+	if len(colMeta.parentFieldIndex) > 0 {
+		value = value.FieldByIndex(colMeta.parentFieldIndex)
+	}
 	field := value.FieldByIndex(colMeta.fieldIndex)
 	originField := field
 	if field.Type().Kind() == reflect.Ptr {
 		field = field.Elem()
 	}
 	result := field.Interface()
-
 	switch colMeta.goType.Kind() {
 	case reflect.Ptr:
 		if colMeta.isDBConverter {
