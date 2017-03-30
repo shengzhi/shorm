@@ -64,12 +64,14 @@ var shardingerType = reflect.TypeOf((*Shardinger)(nil)).Elem()
 func extractTableMetadata(structVal reflect.Value) *TableMetadata {
 	structType := structVal.Type()
 	table := &TableMetadata{
-		Name:         structType.Name(),
 		Columns:      make(ColMetadataMap, 0),
 		IsShardinger: structType.Implements(shardingerType),
 	}
 
 	extractColMetadata(table, structType, nil)
+	if table.Name == "" {
+		table.Name = structType.Name()
+	}
 	return table
 }
 
@@ -79,7 +81,9 @@ func extractColMetadata(table *TableMetadata, structType reflect.Type, parentFie
 	for i := 0; i < structType.NumField(); i++ {
 		field = structType.Field(i)
 		if field.Type == tableNameType {
-			table.Name = field.Tag.Get(tag_shorm)
+			if table.Name == "" {
+				table.Name = field.Tag.Get(tag_shorm)
+			}
 			continue
 		}
 		tag := field.Tag.Get(tag_shorm)
