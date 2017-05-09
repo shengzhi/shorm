@@ -22,12 +22,12 @@ const (
 	tag_extends = "extends"
 )
 
-// Marshaler 读取数据库数据
+// Marshaler 写入数据库数据
 type Marshaler interface {
 	ToDB() interface{}
 }
 
-// Unmarshaler 写入数据库数据
+// Unmarshaler 读取数据库数据
 type Unmarshaler interface {
 	FromDB(b []byte) error
 }
