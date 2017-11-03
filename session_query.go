@@ -20,6 +20,7 @@ func (s *Session) Scalar(sql string, v interface{}, args ...interface{}) error {
 	defer s.reset()
 	s.group, _ = s.engine.cluster.DefaultGroup()
 	node := s.group.GetNode()
+	s.logger.Printf("sql:%s, args:%#v\r\n", sql, args)
 	row := node.Db.QueryRow(sql, args...)
 	return row.Scan(v)
 }

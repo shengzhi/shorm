@@ -259,7 +259,12 @@ func (s *Session) Insert(model interface{}) (int64, error) {
 			if v.isAutoId {
 				autoField := value.FieldByIndex(v.fieldIndex)
 				if autoField.CanSet() {
-					autoField.SetInt(autoId)
+					switch autoField.Type().Kind() {
+					case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
+						autoField.SetInt(autoId)
+					case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint8:
+						autoField.SetUint(uint64(autoId))
+					}
 				}
 				break
 			}
@@ -363,8 +368,14 @@ func (s *Session) updateWithTx(tx *sql.Tx, model interface{}) error {
 	if !strings.Contains(sqlStr, "where") {
 		return fmt.Errorf("'%s',UPDATE statement has no condition, DANGEROUS!", sqlStr)
 	}
-	_, err = tx.Exec(sqlStr, args...)
-	return err
+	result, err := tx.Exec(sqlStr, args...)
+	if err != nil {
+		return err
+	}
+	if rows, _ := result.RowsAffected(); rows <= 0 {
+		return fmt.Errorf("No rows affected")
+	}
+	return nil
 }
 
 // Delete implements delete sql statment.

@@ -169,6 +169,7 @@ func assignValueToStruct(pairs []valuePair, val reflect.Value) error {
 				if t == nil {
 					break
 				}
+
 				field.Set(reflect.ValueOf(*t))
 			} else {
 				if pairs[i].isDBConverter {
