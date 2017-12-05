@@ -57,6 +57,20 @@ func NewEngine(driver string, cluster *Cluster) *Engine {
 	return e
 }
 
+// NewEngineV2 creates DB Engine with specified connection string
+func NewEngineV2(driver, connstr string) *Engine {
+	cluster := &Cluster{TotalGroups: 1}
+	cluster.Groups = append(cluster.Groups, &DbGroup{
+		Nodes: []*DbNode{
+			{
+				Name:    "master",
+				ConnStr: connstr,
+				Type:    NodeType_Master,
+			}},
+	})
+	return NewEngine(driver, cluster)
+}
+
 type clusterConfig struct {
 	XMLName xml.Name `json:"-" xml:"ClusterConfig"`
 	Driver  string   `json:"driver"`
