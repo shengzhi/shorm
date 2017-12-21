@@ -263,6 +263,76 @@ func (e *Engine) SetLogger(logger *log.Logger) {
 	e.Logger = logger
 }
 
+// GetByPK 按主键获取记录
+func (e *Engine) GetByPK(pk, v interface{}) (bool, error) {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	return s.Id(pk).Get(v)
+}
+
+// GetAll 获取整张表
+func (e *Engine) GetAll(slicePtr interface{}, cols ...string) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	if len(cols) >= 0 {
+		s = s.Cols(strings.Join(cols, ","))
+	}
+	return s.Where("1=1").Find(slicePtr)
+}
+
+// GetAllByPage 按页获取整表数据
+func (e *Engine) GetAllByPage(slicePtr interface{}, skip, size int, orderby string, cols ...string) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	if len(cols) >= 0 {
+		s = s.Cols(strings.Join(cols, ","))
+	}
+	if orderby != "" {
+		s = s.OrderBy(orderby)
+	}
+	return s.Limit(skip, size).Find(slicePtr)
+}
+
+// Find 查询
+func (e *Engine) Find(where SqlWhere, slicePtr interface{}) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	s.clauseList = append(s.clauseList, where...)
+	return s.Find(slicePtr)
+}
+
+// Insert 保存单个对象
+func (e *Engine) Insert(model interface{}) (int64, error) {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	return s.Insert(model)
+}
+
+// InsertMulti 保存多个对象
+func (e *Engine) InsertMulti(models ...interface{}) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	return e.InsertMulti(models...)
+}
+
+// InsertSlice 保存数组
+func (e *Engine) InsertSlice(slice interface{}) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	return e.InsertSlice(slice)
+}
+
+// UpdateByPK 按主键修改
+func (e *Engine) UpdateByPK(pk, model interface{}, cols ...string) error {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	if len(cols) >= 0 {
+		s = s.Cols(strings.Join(cols, ","))
+	}
+	_, err := s.Id(pk).Update(model)
+	return err
+}
+
 // GetTableName 获取实体对应的数据表名称
 func GetTableName(model interface{}) string {
 	meta, _ := getTableMeta(model)
