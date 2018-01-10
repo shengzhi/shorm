@@ -270,6 +270,14 @@ func (e *Engine) GetByPK(pk, v interface{}) (bool, error) {
 	return s.Id(pk).Get(v)
 }
 
+// Get 获取单条记录
+func (e *Engine) Get(where SqlWhere, v interface{}) (bool, error) {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	s.clauseList = append(s.clauseList, where...)
+	return s.Get(v)
+}
+
 // GetAll 获取整张表
 func (e *Engine) GetAll(slicePtr interface{}, cols ...string) error {
 	s := e.StartSession()
