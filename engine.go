@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//Package "shorm/core" implements simple select, insert, update, delete operations
+// Package shorm  implements simple select, insert, update, delete operations
 //against relation database cluster.
 package shorm
 
@@ -299,6 +299,14 @@ func (e *Engine) GetAllByPage(slicePtr interface{}, skip, size int, orderby stri
 		s = s.OrderBy(orderby)
 	}
 	return s.Limit(skip, size).Find(slicePtr)
+}
+
+// Count 统计
+func (e *Engine) Count(where SqlWhere, model interface{}) (int64, error) {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	s.clauseList = append(s.clauseList, where...)
+	return s.Count(model)
 }
 
 // Find 查询

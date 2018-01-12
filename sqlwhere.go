@@ -12,6 +12,9 @@ import (
 // SqlWhere sql where 子句
 type SqlWhere sqlClauseList
 
+// W 新建 sql where 实例
+func W() SqlWhere { return SqlWhere{} }
+
 // Where equals < where col=? >
 func (s SqlWhere) Where(clause string, args ...interface{}) SqlWhere {
 	subSql := sqlClause{
