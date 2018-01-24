@@ -349,6 +349,13 @@ func (e *Engine) UpdateByPK(pk, model interface{}, cols ...string) error {
 	return err
 }
 
+// Delete 按主键删除记录
+func (e *Engine) Delete(pk, model interface{}) (int64, error) {
+	s := e.StartSession()
+	defer e.EndSession(s)
+	return s.Id(pk).Delete(model)
+}
+
 // GetTableName 获取实体对应的数据表名称
 func GetTableName(model interface{}) string {
 	meta, _ := getTableMeta(model)
