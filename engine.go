@@ -328,14 +328,16 @@ func (e *Engine) Insert(model interface{}) (int64, error) {
 func (e *Engine) InsertMulti(models ...interface{}) error {
 	s := e.StartSession()
 	defer e.EndSession(s)
-	return e.InsertMulti(models...)
+	_, err := s.InsertMulti(models...)
+	return err
 }
 
 // InsertSlice 保存数组
 func (e *Engine) InsertSlice(slice interface{}) error {
 	s := e.StartSession()
 	defer e.EndSession(s)
-	return e.InsertSlice(slice)
+	_, err := s.InsertSlice(slice)
+	return err
 }
 
 // UpdateByPK 按主键修改
