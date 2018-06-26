@@ -120,7 +120,7 @@ func (s *Session) Get(model interface{}) (bool, error) {
 		}
 	}
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 	var valuePair valuePairList
 	if valuePair, err = row2Slice(rows, table.Columns); err != nil {
