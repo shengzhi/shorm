@@ -164,7 +164,14 @@ func (m *BaseGenerator) GenSelect(table *TableMetadata, sqls sqlClauseList) (str
 	var args []interface{}
 	var colNames string
 	var omitCols []string
+
+	for _, v := range sqls {
+		if v.op == opType_table {
+			goto BE
+		}
+	}
 	sqls = append(sqls, sqlClause{op: opType_table, clause: m.wrapColumn(table.Name)})
+BE:
 	sort.Sort(sqls)
 	isPaging := false
 	hasWhere := false
@@ -413,10 +420,15 @@ func (m *BaseGenerator) GenInsert(value reflect.Value, table *TableMetadata, sql
 	defer m.putBuf(buf)
 	args := make([]interface{}, 0, len(table.Columns))
 	var colNames []string
+	var tableName string
+	hasTableName := false
 	include := true
 Loop:
 	for _, s := range sqls {
 		switch s.op {
+		case opType_table:
+			hasTableName = true
+			tableName = s.clause
 		case opType_rawQuery:
 			return s.clause, s.params
 		case opType_cols:
@@ -428,7 +440,12 @@ Loop:
 		}
 	}
 	buf.WriteString("insert into ")
-	buf.WriteString(m.wrapColumn(table.Name))
+	if hasTableName {
+		buf.WriteString(tableName)
+	} else {
+		buf.WriteString(m.wrapColumn(table.Name))
+	}
+
 	buf.WriteString("(")
 	table.Columns.Foreach(func(col string, meta *columnMetadata) {
 		if meta.isAutoId || meta.rwType&io_type_wo != io_type_wo {
@@ -461,6 +478,7 @@ Loop:
 	} else {
 		buf.WriteString(fmt.Sprintf(") values(%s);", strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")))
 	}
+
 	return buf.String(), args
 }
 
@@ -473,10 +491,15 @@ func (m *BaseGenerator) GenUpdate(value reflect.Value, table *TableMetadata, sql
 	args := make([]interface{}, 0, len(table.Columns))
 	whereArgs := make([]interface{}, 0)
 	var colNames []string
+	var tableName string
 	include := true
 	hasWhere := false
+	hasTableName := false
 	for _, s := range sqls {
 		switch s.op {
+		case opType_table:
+			hasTableName = true
+			tableName = s.clause
 		case opType_rawQuery:
 			return s.clause, s.params
 		case opType_cols:
@@ -533,7 +556,11 @@ func (m *BaseGenerator) GenUpdate(value reflect.Value, table *TableMetadata, sql
 		}
 	}
 	buf.WriteString("update ")
-	buf.WriteString(m.wrapColumn(table.Name))
+	if hasTableName {
+		buf.WriteString(tableName)
+	} else {
+		buf.WriteString(m.wrapColumn(table.Name))
+	}
 	buf.WriteString(" set ")
 	table.Columns.Foreach(func(col string, meta *columnMetadata) {
 		if meta.isAutoId || meta.rwType&io_type_wo != io_type_wo {
@@ -574,9 +601,18 @@ func (m *BaseGenerator) GenDelete(table *TableMetadata, sqls sqlClauseList) (str
 	args := make([]interface{}, 0, len(table.Columns))
 	hasWhere := false
 	buf.WriteString("delete from ")
+	for _, v := range sqls {
+		if v.op == opType_table {
+			buf.WriteString(v.clause)
+			goto BE
+		}
+	}
 	buf.WriteString(m.wrapColumn(table.Name))
+BE:
 	for _, s := range sqls {
 		switch s.op {
+		case opType_table:
+			continue
 		case opType_rawQuery:
 			return s.clause, s.params
 		case opType_id:
