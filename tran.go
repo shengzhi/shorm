@@ -37,6 +37,11 @@ func (d *DbTrans) Commit() error {
 	return d.tx.Commit()
 }
 
+func (d *DbTrans) Table(name string) *DbTrans {
+	d.session.Table(name)
+	return d
+
+}
 func (d *DbTrans) Rollback() error {
 	d.engine.EndSession(d.session)
 	return d.tx.Rollback()

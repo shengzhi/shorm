@@ -19,7 +19,6 @@ type Session struct {
 	hasShardKey bool //if specified shard key
 	isWrite     bool //True when insert,update,delete action, else false
 	forceMaster bool //force to execute sql against master node
-
 }
 
 // Copy 复制session
@@ -85,6 +84,14 @@ func (s *Session) Id(id interface{}) *Session {
 	s.clauseList = append(s.clauseList, sqlClause{
 		op:     opType_id,
 		params: []interface{}{id},
+	})
+	return s
+}
+
+func (s *Session) Table(tablename string) *Session {
+	s.clauseList = append(s.clauseList, sqlClause{
+		op:     opType_table,
+		clause: tablename,
 	})
 	return s
 }
